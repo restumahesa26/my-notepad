@@ -9,13 +9,14 @@ import {
   Moon,
   Sun,
   Layout,
-  Trash2
+  Trash2,
+  Edit2
 } from 'lucide-react';
 import { useNotesList } from '@/lib/useNotesList';
 import NoteEditor from '@/components/NoteEditor';
 import DeleteConfirmModal from '@/components/DeleteConfirmModal';
 import { cn } from '@/lib/utils'; // Assuming you have this utility
-import { ref, set, remove } from 'firebase/database';
+import { ref, set, remove, update } from 'firebase/database';
 import { db } from '@/lib/firebaseConfig';
 
 export default function Home() {
@@ -29,6 +30,11 @@ export default function Home() {
   // Tab State
   const [openTabs, setOpenTabs] = useState<string[]>(['demo-note']);
   const [activeTab, setActiveTab] = useState('demo-note');
+
+  // Renaming State
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingSource, setEditingSource] = useState<'sidebar' | 'tab' | null>(null);
+  const [editTitleInput, setEditTitleInput] = useState('');
 
   // Confirmation Modal State
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -71,6 +77,9 @@ export default function Home() {
       title: 'New Note',
       createdAt: Date.now()
     });
+    // Ensure we aren't stuck in editing another note
+    setEditingNoteId(null);
+    setEditingSource(null);
     openNote(newId);
   };
 
@@ -93,6 +102,30 @@ export default function Home() {
     await remove(noteRef);
 
     setNoteToDelete(null);
+  };
+
+  // Renaming Logic
+  const startRenaming = (e: React.MouseEvent, noteId: string, currentTitle: string, source: 'sidebar' | 'tab') => {
+    e.stopPropagation();
+    // We don't force switch tab if renaming from sidebar, but typically UX expects it.
+    // If not open, do we open it? Maybe not necessary for rename.
+    setEditingNoteId(noteId);
+    setEditingSource(source);
+    setEditTitleInput(currentTitle);
+  };
+
+  const saveRename = async () => {
+    if (editingNoteId) {
+      const noteRef = ref(db, `notes/${editingNoteId}`);
+      await update(noteRef, { title: editTitleInput });
+      setEditingNoteId(null);
+      setEditingSource(null);
+    }
+  };
+
+  const cancelRename = () => {
+    setEditingNoteId(null);
+    setEditingSource(null);
   };
 
   // Helper to get title for a tab
@@ -146,21 +179,51 @@ export default function Home() {
                   : (isDarkMode ? "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200" : "text-gray-500 hover:bg-gray-200/50 hover:text-gray-900")
               )}
             >
-              <div className="flex items-center gap-2 truncate">
-                <FileText size={15} className={cn("transition-colors flex-shrink-0", activeTab === note.id ? "text-blue-500" : "text-gray-400 group-hover:text-gray-500")} />
-                <span className="truncate">{note.title || 'Untitled'}</span>
-              </div>
+              {editingNoteId === note.id && editingSource === 'sidebar' ? (
+                <input
+                  autoFocus
+                  type="text"
+                  value={editTitleInput}
+                  onChange={(e) => setEditTitleInput(e.target.value)}
+                  onBlur={saveRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveRename();
+                    if (e.key === 'Escape') cancelRename();
+                  }}
+                  className="bg-transparent border-b border-blue-500 focus:outline-none w-full min-w-0 py-0.5"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 truncate flex-1">
+                    <FileText size={15} className={cn("transition-colors flex-shrink-0", activeTab === note.id ? "text-blue-500" : "text-gray-400 group-hover:text-gray-500")} />
+                    <span className="truncate">{note.title || 'Untitled'}</span>
+                  </div>
 
-              <button
-                onClick={(e) => initiateDelete(e, note.id)}
-                className={cn(
-                  "opacity-0 group-hover:opacity-100 p-1 rounded-md transition-all flex-shrink-0",
-                  isDarkMode ? "hover:bg-red-900/30 text-zinc-500 hover:text-red-400" : "hover:bg-red-50 text-gray-400 hover:text-red-500"
-                )}
-                title="Delete Note"
-              >
-                <Trash2 size={13} />
-              </button>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={(e) => startRenaming(e, note.id, note.title, 'sidebar')}
+                      className={cn(
+                        "p-1 rounded-md transition-all",
+                        isDarkMode ? "hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200" : "hover:bg-gray-200 text-gray-400 hover:text-gray-700"
+                      )}
+                      title="Rename Note"
+                    >
+                      <Edit2 size={13} />
+                    </button>
+                    <button
+                      onClick={(e) => initiateDelete(e, note.id)}
+                      className={cn(
+                        "p-1 rounded-md transition-all",
+                        isDarkMode ? "hover:bg-red-900/30 text-zinc-500 hover:text-red-400" : "hover:bg-red-50 text-gray-400 hover:text-red-500"
+                      )}
+                      title="Delete Note"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
 
@@ -194,25 +257,51 @@ export default function Home() {
               <div
                 key={noteId}
                 onClick={() => setActiveTab(noteId)}
+                onDoubleClick={(e) => startRenaming(e, noteId, getNoteTitle(noteId), 'tab')}
                 className={cn(
                   "h-[calc(100%-4px)] pl-3 pr-2 min-w-[140px] max-w-[240px] rounded-t-lg border-x border-t flex items-center justify-between gap-3 text-xs cursor-pointer group transition-all relative",
                   isDarkMode
                     ? (activeTab === noteId ? "bg-zinc-950 border-zinc-800 text-zinc-200" : "bg-zinc-800/20 border-transparent text-zinc-500 hover:bg-zinc-800")
                     : (activeTab === noteId ? "bg-white border-gray-200/60 shadow-sm text-gray-800 z-10" : "bg-gray-100/50 border-transparent text-gray-500 hover:bg-gray-200/50")
                 )}
+                title="Double-click to rename"
               >
-                <span className="truncate font-medium">{getNoteTitle(noteId)}</span>
-                <button
-                  onClick={(e) => handleCloseTab(e, noteId)}
-                  className={cn(
-                    "opacity-0 group-hover:opacity-100 p-0.5 rounded-full transition-all",
-                    isDarkMode ? "hover:bg-zinc-700 text-zinc-400" : "hover:bg-gray-300 text-gray-500"
-                  )}
-                >
-                  <X size={12} />
-                </button>
+                {editingNoteId === noteId && editingSource === 'tab' ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    value={editTitleInput}
+                    onChange={(e) => setEditTitleInput(e.target.value)}
+                    onBlur={saveRename}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveRename();
+                      if (e.key === 'Escape') cancelRename();
+                    }}
+                    className={cn(
+                      "bg-transparent border-b-2 focus:outline-none w-full min-w-0 py-0.5 text-inherit z-50 relative",
+                      isDarkMode ? "border-blue-500 text-white" : "border-blue-500 text-gray-900"
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span className="truncate font-medium select-none">{getNoteTitle(noteId)}</span>
+                )}
+
+                {!editingNoteId && (
+                  <button
+                    onClick={(e) => handleCloseTab(e, noteId)}
+                    className={cn(
+                      "opacity-0 group-hover:opacity-100 p-0.5 rounded-full transition-all",
+                      isDarkMode ? "hover:bg-zinc-700 text-zinc-400" : "hover:bg-gray-300 text-gray-500"
+                    )}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+
                 {/* Active Indicator Line for Tabs */}
-                {activeTab === noteId && (
+                {activeTab === noteId && !editingNoteId && (
                   <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500 rounded-t-full"></div>
                 )}
               </div>
