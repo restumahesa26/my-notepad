@@ -7,13 +7,17 @@ interface DeleteConfirmModalProps {
     onClose: () => void;
     onConfirm: () => void;
     isDarkMode: boolean;
+    title?: string;
+    description?: string;
 }
 
 export default function DeleteConfirmModal({
     isOpen,
     onClose,
     onConfirm,
-    isDarkMode
+    isDarkMode,
+    title = "Delete this note?",
+    description = "This action will move the note to trash."
 }: DeleteConfirmModalProps) {
     if (!isOpen) return null;
 
@@ -37,14 +41,14 @@ export default function DeleteConfirmModal({
                         "text-lg font-semibold mb-2",
                         isDarkMode ? "text-white" : "text-gray-900"
                     )}>
-                        Delete this note?
+                        {title}
                     </h3>
 
                     <p className={cn(
                         "text-sm mb-6",
                         isDarkMode ? "text-zinc-400" : "text-gray-500"
                     )}>
-                        This action cannot be undone. The note will be permanently removed from your library.
+                        {description}
                     </p>
 
                     <div className="flex gap-3">

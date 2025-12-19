@@ -10,7 +10,10 @@ import {
   Sun,
   Layout,
   Trash2,
-  Edit2
+  Edit2,
+  Undo,
+  Archive,
+  Trash
 } from 'lucide-react';
 import { useNotesList } from '@/lib/useNotesList';
 import NoteEditor from '@/components/NoteEditor';
@@ -23,6 +26,7 @@ export default function Home() {
   // Global App State
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [trashOpen, setTrashOpen] = useState(false);
 
   // Data State
   const { notes, loading } = useNotesList();
@@ -38,6 +42,7 @@ export default function Home() {
 
   // Confirmation Modal State
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteType, setDeleteType] = useState<'soft' | 'hard'>('soft');
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
 
   // Actions
@@ -86,22 +91,46 @@ export default function Home() {
   const initiateDelete = (e: React.MouseEvent, noteId: string) => {
     e.stopPropagation();
     setNoteToDelete(noteId);
+    setDeleteType('soft');
+    setDeleteModalOpen(true);
+  };
+
+  const initiatePermanentDelete = (e: React.MouseEvent, noteId: string) => {
+    e.stopPropagation();
+    setNoteToDelete(noteId);
+    setDeleteType('hard');
     setDeleteModalOpen(true);
   };
 
   const confirmDelete = async () => {
     if (!noteToDelete) return;
 
-    // Close tab if open
-    if (openTabs.includes(noteToDelete)) {
-      closeTab(noteToDelete);
+    if (deleteType === 'soft') {
+      // Remove from local open tabs if open
+      if (openTabs.includes(noteToDelete)) {
+        closeTab(noteToDelete);
+      }
+
+      // Soft Delete (Move to Trash)
+      const noteRef = ref(db, `notes/${noteToDelete}`);
+      await update(noteRef, { isDeleted: true });
+    } else {
+      // Hard Delete
+      const noteRef = ref(db, `notes/${noteToDelete}`);
+      await remove(noteRef);
     }
 
-    // Remove from Firebase
-    const noteRef = ref(db, `notes/${noteToDelete}`);
-    await remove(noteRef);
-
     setNoteToDelete(null);
+  };
+
+  const handleRestore = async (e: React.MouseEvent, noteId: string) => {
+    e.stopPropagation();
+    const noteRef = ref(db, `notes/${noteId}`);
+    await update(noteRef, { isDeleted: false });
+  };
+
+  const handleDeletePermanently = (e: React.MouseEvent, noteId: string) => {
+    initiatePermanentDelete(e, noteId);
   };
 
   // Renaming Logic
@@ -145,6 +174,10 @@ export default function Home() {
         onClose={() => setDeleteModalOpen(false)}
         onConfirm={confirmDelete}
         isDarkMode={isDarkMode}
+        title={deleteType === 'soft' ? "Move to Trash?" : "Delete Permanently?"}
+        description={deleteType === 'soft'
+          ? "This note will be moved to the trash. You can restore it later."
+          : "This action cannot be undone. The note will be permanently removed."}
       />
 
       {/* SIDEBAR */}
@@ -168,7 +201,7 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
           {loading && <div className="p-4 text-xs text-gray-400 animate-pulse">Loading notes...</div>}
 
-          {!loading && notes.map((note) => (
+          {!loading && notes.filter(n => !n.isDeleted).map((note) => (
             <div
               key={note.id}
               onClick={() => openNote(note.id)}
@@ -217,7 +250,7 @@ export default function Home() {
                         "p-1 rounded-md transition-all",
                         isDarkMode ? "hover:bg-red-900/30 text-zinc-500 hover:text-red-400" : "hover:bg-red-50 text-gray-400 hover:text-red-500"
                       )}
-                      title="Delete Note"
+                      title="Move to Trash"
                     >
                       <Trash2 size={13} />
                     </button>
@@ -226,6 +259,59 @@ export default function Home() {
               )}
             </div>
           ))}
+
+          {/* TRASH SECTION */}
+          <div className="mt-6 pt-4 border-t border-inherit">
+            <div
+              onClick={() => setTrashOpen(!trashOpen)}
+              className={cn(
+                "px-4 py-2 text-xs font-semibold uppercase tracking-wider cursor-pointer flex items-center justify-between transition-colors",
+                isDarkMode ? "text-zinc-500 hover:text-zinc-300" : "text-gray-400 hover:text-gray-600"
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <Trash size={14} />
+                <span>Trash</span>
+              </div>
+              <span className="text-[10px] bg-inherit opacity-70 px-1.5 py-0.5 rounded-full border border-inherit">
+                {notes.filter(n => n.isDeleted).length}
+              </span>
+            </div>
+
+            {trashOpen && (
+              <div className="space-y-0.5 mt-1 px-2">
+                {notes.filter(n => n.isDeleted).length === 0 && (
+                  <div className="p-3 text-xs text-center italic opacity-50">Trash is empty</div>
+                )}
+                {notes.filter(n => n.isDeleted).map(note => (
+                  <div key={note.id} className={cn(
+                    "px-3 py-2 text-sm rounded-lg flex items-center justify-between gap-2 transition-all opacity-70 hover:opacity-100",
+                    isDarkMode ? "hover:bg-zinc-800/50 text-zinc-400" : "hover:bg-gray-100 text-gray-500"
+                  )}>
+                    <span className="truncate flex-1 decoration-slice line-through decoration-inherit opacity-70">
+                      {note.title}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => handleRestore(e, note.id)}
+                        className="p-1 hover:bg-green-500/10 hover:text-green-500 rounded transition-colors"
+                        title="Restore Note"
+                      >
+                        <Undo size={13} />
+                      </button>
+                      <button
+                        onClick={(e) => handleDeletePermanently(e, note.id)}
+                        className="p-1 hover:bg-red-500/10 hover:text-red-500 rounded transition-colors"
+                        title="Delete Permanently"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {notes.length === 0 && !loading && (
             <div className="p-4 text-xs text-gray-400 text-center italic">No notes found. Create one!</div>
